@@ -17,6 +17,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -38,7 +42,9 @@ data class MailUiState(
     val isLoadingMore: Boolean = false,
     val errorMessage: String? = null,
     val lastSyncTime: Long = 0L,
-    val toast: String? = null
+    val toast: String? = null,
+    /** 非空表示当前提示可撤销（删除 / 归档的 5 秒窗口） */
+    val undoLabel: String? = null
 )
 
 data class ComposeDraft(
@@ -59,6 +65,14 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 撰写页草稿（回复/转发时预填） */
     var pendingCompose: ComposeDraft? = null
+
+    /** 真正对应服务器文件夹的本地名称（其余是本地过滤视图，不落盘） */
+    private val serverFolders = setOf("收件箱", "已发送", "草稿", "垃圾", "废纸篓")
+
+    /** 撤销窗口 ms：延迟回写服务器，给用户反悔机会 */
+    private val undoWindowMs = 5000L
+    private var pendingAction: Job? = null
+    private var pendingEmail: EmailMessage? = null
 
     init {
         val accounts = AccountStore.load(appContext)
@@ -124,6 +138,7 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
         val accounts = _state.value.accounts
         if (accounts.isEmpty()) return
         val folderName = serverFolderName(_state.value.currentFolder)
+        val folderKey = _state.value.currentFolder
         viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, errorMessage = null)
 
@@ -137,17 +152,28 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                 _state.value = _state.value.copy(emails = seeded)
             }
 
-            // 2) 增量同步（只拉新邮件）
+            // 2) 多账户并行增量同步：每账户独立 IMAP 连接，互不阻塞
+            val results = coroutineScope {
+                accounts.map { acc ->
+                    async(Dispatchers.IO) {
+                        val cached = cachedMap[acc.id]
+                        val res = MailRepository.fetchFolderIncremental(
+                            acc,
+                            folderName,
+                            cached?.maxUid ?: 0L,
+                            cached?.uidValidity ?: -1L
+                        )
+                        Triple(acc, cached, res)
+                    }
+                }.awaitAll()
+            }
+
+            // 用户期间切换了文件夹：丢弃本次结果，避免串味
+            if (_state.value.currentFolder != folderKey) return@launch
+
             val finalList = mutableListOf<EmailMessage>()
             var lastError: String? = null
-            accounts.forEach { acc ->
-                val cached = cachedMap[acc.id]
-                val res = MailRepository.fetchFolderIncremental(
-                    acc,
-                    folderName,
-                    cached?.maxUid ?: 0L,
-                    cached?.uidValidity ?: -1L
-                )
+            results.forEach { (acc, cached, res) ->
                 if (res.isSuccess) {
                     val fr = res.getOrThrow()
                     val validityChanged = fr.uidValidity > 0L &&
@@ -192,6 +218,8 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
     private fun persistCurrentFolder() {
         val st = _state.value
         if (st.accounts.isEmpty() || st.emails.isEmpty()) return
+        // 智能邮箱（VIP/未读/有附件/今天）与搜索结果只是本地过滤视图，不能覆盖真实文件夹缓存
+        if (st.currentFolder !in serverFolders) return
         val folderName = serverFolderName(st.currentFolder)
         val grouped = st.emails.groupBy { it.accountId }
         val accounts = st.accounts
@@ -310,7 +338,9 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun consumeToast() {
-        if (_state.value.toast != null) _state.value = _state.value.copy(toast = null)
+        if (_state.value.toast != null) {
+            _state.value = _state.value.copy(toast = null, undoLabel = null)
+        }
     }
 
     // ---------------- 服务器回写：已读 / 旗标 ----------------
@@ -383,11 +413,8 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
         val account = accountOf(email.accountId) ?: return
         if (email.uid < 0) return
         val folder = folderForEmail(email)
-        viewModelScope.launch {
-            val res = MailRepository.archiveMessage(account, folder, email.uid)
-            _state.value = _state.value.copy(
-                toast = if (res.isSuccess) "已归档" else "归档失败：${friendlyError(res.exceptionOrNull())}"
-            )
+        scheduleUndoable("已归档", email) {
+            MailRepository.archiveMessage(account, folder, email.uid)
         }
     }
 
@@ -397,12 +424,51 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
         val account = accountOf(email.accountId) ?: return
         if (email.uid < 0) return
         val folder = folderForEmail(email)
-        viewModelScope.launch {
-            val res = MailRepository.deleteMessage(account, folder, email.uid)
+        scheduleUndoable("已删除", email) {
+            MailRepository.deleteMessage(account, folder, email.uid)
+        }
+    }
+
+    /**
+     * 撤销窗口：延迟 [undoWindowMs] 再回写服务器。
+     * 期间用户点「撤销」则取消后台上写并把邮件放回列表，避免误删 / 误归档。
+     */
+    private fun scheduleUndoable(
+        label: String,
+        email: EmailMessage,
+        action: suspend () -> Result<Unit>
+    ) {
+        pendingAction?.cancel()
+        pendingEmail = email
+        pendingAction = viewModelScope.launch {
+            delay(undoWindowMs)
+            pendingEmail = null
+            if (_state.value.undoLabel != null) {
+                _state.value = _state.value.copy(undoLabel = null)
+            }
+            val res = action()
             _state.value = _state.value.copy(
-                toast = if (res.isSuccess) "已删除" else "删除失败：${friendlyError(res.exceptionOrNull())}"
+                toast = if (res.isSuccess) label else "$label失败：${friendlyError(res.exceptionOrNull())}"
             )
         }
+        _state.value = _state.value.copy(toast = "$label（可撤销）", undoLabel = "撤销")
+    }
+
+    /** 撤销上一次删除 / 归档。 */
+    fun undoLastAction() {
+        val email = pendingEmail
+        pendingAction?.cancel()
+        pendingAction = null
+        pendingEmail = null
+        if (email == null) {
+            _state.value = _state.value.copy(toast = null, undoLabel = null)
+            return
+        }
+        _state.value = _state.value.copy(
+            emails = (_state.value.emails + email).sortedByDescending { it.timestamp },
+            toast = "已恢复",
+            undoLabel = null
+        )
     }
 
     private fun removeLocally(id: Long) {
@@ -431,6 +497,9 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
 
     fun archiveSelected() {
         val targets = _state.value.emails.filter { _state.value.selectedEmails.contains(it.id) }
+        if (targets.isNotEmpty()) {
+            _state.value = _state.value.copy(toast = "已归档 ${targets.size} 封")
+        }
         _state.value = _state.value.copy(
             emails = _state.value.emails.filterNot { _state.value.selectedEmails.contains(it.id) },
             isSelectionMode = false, selectedEmails = emptySet()
@@ -443,6 +512,9 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteSelected() {
         val targets = _state.value.emails.filter { _state.value.selectedEmails.contains(it.id) }
+        if (targets.isNotEmpty()) {
+            _state.value = _state.value.copy(toast = "已删除 ${targets.size} 封")
+        }
         _state.value = _state.value.copy(
             emails = _state.value.emails.filterNot { _state.value.selectedEmails.contains(it.id) },
             isSelectionMode = false, selectedEmails = emptySet()

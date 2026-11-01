@@ -872,7 +872,7 @@ object MailRepository {
                     } catch (_: Throwable) {
                         part.fileName = att.fileName
                     }
-                    part.setContent(ByteArrayDataSource(att.bytes, att.mimeType))
+                    part.setContent(ByteArrayDataSource(att.bytes, att.mimeType), att.mimeType)
                     part.disposition = Part.ATTACHMENT
                     multipart.addBodyPart(part)
                 }

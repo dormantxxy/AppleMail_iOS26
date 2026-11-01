@@ -115,7 +115,7 @@ fun MailCard(
                     Text(
                         text = email.senderName,
                         style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (email.isRead) FontWeight.Regular else FontWeight.SemiBold,
+                        fontWeight = if (email.isRead) FontWeight.Normal else FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onBackground,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

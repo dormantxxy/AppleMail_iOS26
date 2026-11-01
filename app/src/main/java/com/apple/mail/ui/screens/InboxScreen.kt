@@ -343,7 +343,7 @@ fun InboxScreen(
             )
         }
 
-        // 操作结果提示
+        // 操作结果提示（可撤销时显示「撤销」按钮）
         if (state.toast != null) {
             Surface(
                 color = Color(0xE6000000),
@@ -352,12 +352,22 @@ fun InboxScreen(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 96.dp, start = 24.dp, end = 24.dp)
             ) {
-                Text(
-                    text = state.toast ?: "",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
+                ) {
+                    Text(
+                        text = state.toast ?: "",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (state.undoLabel != null) {
+                        TextButton(onClick = { viewModel.undoLastAction() }) {
+                            Text(state.undoLabel ?: "", color = Color(0xFF64D2FF), fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
             }
         }
 

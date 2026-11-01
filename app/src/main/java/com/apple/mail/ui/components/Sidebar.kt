@@ -308,7 +308,7 @@ private fun FolderRow(
         }
         if (selected) {
             Icon(
-                Icons.Filled.Checkmark,
+                Icons.Filled.Check,
                 contentDescription = null,
                 tint = MailBlue,
                 modifier = Modifier.size(16.dp)
