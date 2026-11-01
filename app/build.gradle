@@ -55,6 +55,8 @@ android {
             excludes += 'META-INF/NOTICE.txt'
             excludes += 'META-INF/DEPENDENCIES'
             excludes += 'META-INF/INDEX.LIST'
+            excludes += 'META-INF/LICENSE.md'
+            excludes += 'META-INF/NOTICE.md'
             pickFirsts += 'META-INF/mailcap'
             pickFirsts += 'META-INF/mimetypes.default'
         }
