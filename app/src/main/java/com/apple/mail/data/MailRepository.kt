@@ -9,7 +9,9 @@ import java.util.Properties
 import javax.mail.Address
 import javax.mail.Authenticator
 import javax.mail.Flags
+import javax.mail.FetchProfile
 import javax.mail.Folder
+import javax.mail.UIDFolder
 import javax.mail.Message
 import javax.mail.Multipart
 import javax.mail.Part
@@ -167,9 +169,16 @@ object MailRepository {
                         if (total > 0) {
                             val start = maxOf(1, total - FETCH_LIMIT + 1)
                             val messages = folder.getMessages(start, total)
+
+                            try {
+                                val fp = FetchProfile()
+                                fp.add(UIDFolder.FetchProfileItem.UID)
+                                folder.fetch(messages, fp)
+                            } catch (_: Throwable) {
+                            }
                             for (i in messages.indices.reversed()) {
                                 try {
-                                    result.add(parseMessage(account, messages[i]))
+                                    result.add(parseMessage(account, messages[i], folder))
                                 } catch (_: Throwable) {
                                 }
                             }
@@ -184,7 +193,7 @@ object MailRepository {
             }
         }
 
-    private fun parseMessage(account: MailAccount, msg: Message): EmailMessage {
+    private fun parseMessage(account: MailAccount, msg: Message, folder: Folder): EmailMessage {
         val subject = msg.subject?.toString()?.trim().orEmpty().ifBlank { "(无主题)" }
         val fromAddrs: Array<Address>? = msg.from
         val senderEmail = (fromAddrs?.firstOrNull() as? InternetAddress)?.address.orEmpty()
@@ -206,10 +215,7 @@ object MailRepository {
         val category = categorize(senderName, senderEmail, subject, preview)
 
         val uid = try {
-            when (msg) {
-                is com.sun.mail.imap.IMAPMessage -> msg.getUid()
-                else -> -1L
-            }
+            (folder as? UIDFolder)?.getUID(msg) ?: -1L
         } catch (_: Throwable) { -1L }
 
         return EmailMessage(
