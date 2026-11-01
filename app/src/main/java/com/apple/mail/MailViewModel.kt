@@ -448,7 +448,7 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
             }
             val res = action()
             _state.value = _state.value.copy(
-                toast = if (res.isSuccess) label else "$label失败：${friendlyError(res.exceptionOrNull())}"
+                toast = if (res.isSuccess) label else "${label}失败：${friendlyError(res.exceptionOrNull())}"
             )
         }
         _state.value = _state.value.copy(toast = "$label（可撤销）", undoLabel = "撤销")
