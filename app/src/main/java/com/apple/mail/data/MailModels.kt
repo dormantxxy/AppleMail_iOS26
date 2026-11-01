@@ -39,12 +39,14 @@ data class EmailMessage(
     val subject: String,
     val preview: String,
     val body: String,
+    val bodyHtml: String = "",
     val timestamp: Long,
     val category: MailCategory,
     val isRead: Boolean = false,
     val isFlagged: Boolean = false,
     val hasAttachment: Boolean = false,
     val attachmentName: String? = null,
+    val attachmentNames: List<String> = emptyList(),
     val priority: MailPriority = MailPriority.NORMAL,
     val avatarColorIndex: Int = 0
 ) {
@@ -80,7 +82,16 @@ data class MailAccount(
     val smtpSsl: Boolean,
     val colorIndex: Int,
     /** 服务器要求 STARTTLS 而非直接 SSL（如 Outlook 587 端口） */
-    val smtpStartTls: Boolean = false
+    val smtpStartTls: Boolean = false,
+    // OAuth（XOAUTH2）
+    val authType: String = "password",
+    val accessToken: String = "",
+    val refreshToken: String = "",
+    val expiresAt: Long = 0L,
+    val tokenEndpoint: String = "",
+    val clientId: String = "",
+    val clientSecret: String = "",
+    val scope: String = ""
 )
 
 /** 邮件文件夹 / 智能邮箱 */

@@ -1,11 +1,15 @@
 package com.apple.mail
 
 import android.app.Application
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.apple.mail.data.AccountStore
 import com.apple.mail.data.EmailMessage
 import com.apple.mail.data.MailAccount
+import com.apple.mail.data.MailAttachment
+import com.apple.mail.data.MailCacheStore
 import com.apple.mail.data.MailCategory
 import com.apple.mail.data.MailRepository
 import com.apple.mail.data.ServerFlag
@@ -13,9 +17,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Calendar
 
 data class MailUiState(
     val emails: List<EmailMessage> = emptyList(),
@@ -29,9 +35,17 @@ data class MailUiState(
     val currentFolder: String = "收件箱",
     val showListMode: Boolean = false,
     val isLoading: Boolean = false,
+    val isLoadingMore: Boolean = false,
     val errorMessage: String? = null,
     val lastSyncTime: Long = 0L,
     val toast: String? = null
+)
+
+data class ComposeDraft(
+    val to: String = "",
+    val cc: String = "",
+    val subject: String = "",
+    val body: String = ""
 )
 
 class MailViewModel(app: Application) : AndroidViewModel(app) {
@@ -43,10 +57,28 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
 
     val emails: List<EmailMessage> get() = _state.value.emails
 
+    /** 撰写页草稿（回复/转发时预填） */
+    var pendingCompose: ComposeDraft? = null
+
     init {
         val accounts = AccountStore.load(appContext)
         _state.value = _state.value.copy(accounts = accounts)
         if (accounts.isNotEmpty()) refreshAll()
+        // 邮件变化后自动落盘（防抖），保证下次打开有内容
+        viewModelScope.launch {
+            var lastHash = Int.MIN_VALUE
+            while (true) {
+                delay(1500)
+                val st = _state.value
+                if (!st.isLoading && st.emails.isNotEmpty()) {
+                    val h = st.emails.hashCode()
+                    if (h != lastHash) {
+                        lastHash = h
+                        persistCurrentFolder()
+                    }
+                }
+            }
+        }
     }
 
     // ---------------- 账户 ----------------
@@ -78,6 +110,7 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val accounts = _state.value.accounts.filterNot { it.id == accountId }
             withContext(Dispatchers.IO) { AccountStore.save(appContext, accounts) }
+            withContext(Dispatchers.IO) { MailCacheStore.clearAccount(appContext, accountId) }
             val mails = _state.value.emails.filterNot { it.accountId == accountId }
             _state.value = _state.value.copy(accounts = accounts, emails = mails)
         }
@@ -93,20 +126,89 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
         val folderName = serverFolderName(_state.value.currentFolder)
         viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, errorMessage = null)
-            val all = mutableListOf<EmailMessage>()
+
+            // 1) 先展示本地缓存，避免白屏
+            val cachedMap = withContext(Dispatchers.IO) {
+                accounts.associate { it.id to MailCacheStore.load(appContext, it.id, folderName) }
+            }
+            val seeded = cachedMap.values.filterNotNull().flatMap { it.emails }
+                .sortedByDescending { it.timestamp }
+            if (seeded.isNotEmpty()) {
+                _state.value = _state.value.copy(emails = seeded)
+            }
+
+            // 2) 增量同步（只拉新邮件）
+            val finalList = mutableListOf<EmailMessage>()
             var lastError: String? = null
             accounts.forEach { acc ->
-                val res = MailRepository.fetchFolder(acc, folderName)
-                if (res.isSuccess) all.addAll(res.getOrNull().orEmpty())
-                else lastError = "${acc.email}: ${friendlyError(res.exceptionOrNull())}"
+                val cached = cachedMap[acc.id]
+                val res = MailRepository.fetchFolderIncremental(
+                    acc,
+                    folderName,
+                    cached?.maxUid ?: 0L,
+                    cached?.uidValidity ?: -1L
+                )
+                if (res.isSuccess) {
+                    val fr = res.getOrThrow()
+                    val validityChanged = fr.uidValidity > 0L &&
+                        (cached?.uidValidity ?: -1L) > 0L &&
+                        fr.uidValidity != cached?.uidValidity
+                    val byKey = LinkedHashMap<String, EmailMessage>()
+                    if (!validityChanged) {
+                        cached?.emails?.forEach { byKey[emailKey(it)] = it }
+                    }
+                    fr.emails.forEach { byKey[emailKey(it)] = it }
+                    val list = byKey.values.sortedByDescending { it.timestamp }
+                        .take(MailCacheStore.MAX_CACHE)
+                    finalList.addAll(list)
+                    withContext(Dispatchers.IO) {
+                        MailCacheStore.save(
+                            appContext,
+                            acc.id,
+                            folderName,
+                            fr.uidValidity,
+                            fr.maxUid,
+                            list
+                        )
+                    }
+                } else {
+                    cached?.emails?.let { finalList.addAll(it) }
+                    lastError = "${acc.email}: ${friendlyError(res.exceptionOrNull())}"
+                }
             }
-            all.sortByDescending { it.timestamp }
             _state.value = _state.value.copy(
-                emails = all,
+                emails = finalList.sortedByDescending { it.timestamp },
                 isLoading = false,
                 errorMessage = lastError,
                 lastSyncTime = System.currentTimeMillis()
             )
+        }
+    }
+
+    private fun emailKey(e: EmailMessage): String =
+        if (e.uid >= 0) "${e.accountId}#${e.uid}" else "id#${e.id}"
+
+    /** 把当前文件夹的邮件写入本地缓存（保留已有 UID 水位）。 */
+    private fun persistCurrentFolder() {
+        val st = _state.value
+        if (st.accounts.isEmpty() || st.emails.isEmpty()) return
+        val folderName = serverFolderName(st.currentFolder)
+        val grouped = st.emails.groupBy { it.accountId }
+        val accounts = st.accounts
+        viewModelScope.launch(Dispatchers.IO) {
+            accounts.forEach { acc ->
+                val list = grouped[acc.id] ?: return@forEach
+                val existing = MailCacheStore.load(appContext, acc.id, folderName)
+                val maxUid = maxOf(existing?.maxUid ?: 0L, list.maxOfOrNull { it.uid } ?: 0L)
+                MailCacheStore.save(
+                    appContext,
+                    acc.id,
+                    folderName,
+                    existing?.uidValidity ?: -1L,
+                    maxUid,
+                    list.sortedByDescending { it.timestamp }.take(MailCacheStore.MAX_CACHE)
+                )
+            }
         }
     }
 
@@ -121,6 +223,42 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun accountOf(accountId: String): MailAccount? =
         _state.value.accounts.firstOrNull { it.id == accountId }
+
+    /** 加载更早的一页邮件。 */
+    fun loadMore() {
+        val st = _state.value
+        if (st.isLoading || st.isLoadingMore || st.accounts.isEmpty()) return
+        val folder = serverFolderName(st.currentFolder)
+        val mins = st.accounts.associate { acc ->
+            val uid = st.emails.filter { it.accountId == acc.id && it.uid > 0 }
+                .map { it.uid }
+                .minOrNull() ?: 0L
+            acc.id to uid
+        }
+        if (mins.values.none { it > 1L }) {
+            _state.value = st.copy(toast = "没有更多邮件")
+            return
+        }
+        _state.value = st.copy(isLoadingMore = true)
+        viewModelScope.launch {
+            val collected = mutableListOf<EmailMessage>()
+            st.accounts.forEach { acc ->
+                val before = mins[acc.id] ?: 0L
+                if (before > 1L) {
+                    val res = MailRepository.fetchOlder(acc, folder, before, 30)
+                    res.getOrNull()?.let { collected.addAll(it) }
+                }
+            }
+            val byKey = LinkedHashMap<String, EmailMessage>()
+            _state.value.emails.forEach { byKey[emailKey(it)] = it }
+            collected.forEach { byKey[emailKey(it)] = it }
+            _state.value = _state.value.copy(
+                emails = byKey.values.sortedByDescending { it.timestamp },
+                isLoadingMore = false,
+                toast = if (collected.isEmpty()) "没有更多邮件" else null
+            )
+        }
+    }
 
     // ---------------- 分类 / 搜索 / 选择 ----------------
 
@@ -218,6 +356,25 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun markAllRead() {
+        val targets = _state.value.emails.filter { !it.isRead }
+        if (targets.isEmpty()) return
+        _state.value = _state.value.copy(emails = _state.value.emails.map { it.copy(isRead = true) })
+        val folder = serverFolderName(_state.value.currentFolder)
+        targets.groupBy { it.accountId }.forEach { (accId, list) ->
+            val account = accountOf(accId) ?: return@forEach
+            val uids = list.map { it.uid }.filter { it >= 0 }
+            if (uids.isNotEmpty()) {
+                viewModelScope.launch {
+                    val res = MailRepository.markAllSeen(account, folder, uids)
+                    if (res.isFailure) {
+                        _state.value = _state.value.copy(toast = "全部已读同步失败：${friendlyError(res.exceptionOrNull())}")
+                    }
+                }
+            }
+        }
+    }
+
     // ---------------- 服务器回写：删除 / 归档 ----------------
 
     fun archiveEmail(id: Long) {
@@ -298,7 +455,7 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------- 附件下载 ----------------
 
-    fun downloadAttachment(id: Long, onResult: (Boolean, String) -> Unit) {
+    fun downloadAttachment(id: Long, index: Int = 0, onResult: (Boolean, String) -> Unit) {
         val email = _state.value.emails.firstOrNull { it.id == id }
         if (email == null) { onResult(false, "找不到邮件"); return }
         val account = accountOf(email.accountId)
@@ -307,7 +464,7 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
         val folder = folderForEmail(email)
         viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true)
-            val res = MailRepository.downloadFirstAttachment(account, folder, email.uid)
+            val res = MailRepository.downloadAttachmentAt(account, folder, email.uid, index)
             _state.value = _state.value.copy(isLoading = false)
             if (res.isSuccess) {
                 val att = res.getOrNull()!!
@@ -327,8 +484,35 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------- 发送 ----------------
 
+    fun startReply(email: EmailMessage) {
+        val subj = if (email.subject.startsWith("Re:", true)) email.subject else "Re: ${email.subject}"
+        pendingCompose = ComposeDraft(
+            to = email.senderEmail,
+            subject = subj,
+            body = "\n\n—— 原始邮件 ——\n发件人：${email.senderName} <${email.senderEmail}>\n时间：${email.displayTime}\n\n${email.body}"
+        )
+    }
+
+    fun startForward(email: EmailMessage) {
+        val subj = if (email.subject.startsWith("Fwd:", true)) email.subject else "Fwd: ${email.subject}"
+        pendingCompose = ComposeDraft(
+            to = "",
+            subject = subj,
+            body = "\n\n—— 转发邮件 ——\n发件人：${email.senderName} <${email.senderEmail}>\n主题：${email.subject}\n\n${email.body}"
+        )
+    }
+
+    fun clearPendingCompose() {
+        pendingCompose = null
+    }
+
     fun sendMail(
-        accountId: String, to: String, cc: String, subject: String, body: String,
+        accountId: String,
+        to: String,
+        cc: String,
+        subject: String,
+        body: String,
+        attachmentUris: List<Uri> = emptyList(),
         onResult: (Boolean, String?) -> Unit
     ) {
         val account = _state.value.accounts.firstOrNull { it.id == accountId }
@@ -336,11 +520,50 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
         if (account == null) { onResult(false, "没有可用的发件账户，请先添加邮箱"); return }
         viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true)
-            val result = MailRepository.sendMail(account, to, cc, subject, body)
+            val atts = if (attachmentUris.isEmpty()) {
+                emptyList()
+            } else {
+                withContext(Dispatchers.IO) { readAttachments(attachmentUris) }
+            }
+            val result = MailRepository.sendMail(account, to, cc, subject, body, atts)
             _state.value = _state.value.copy(isLoading = false)
             if (result.isSuccess) onResult(true, null)
             else onResult(false, friendlyError(result.exceptionOrNull()))
         }
+    }
+
+    /** 读取用户选择的内容 Uri 为附件（总大小上限 20MB）。 */
+    private fun readAttachments(uris: List<Uri>): List<MailAttachment> {
+        val out = mutableListOf<MailAttachment>()
+        var total = 0L
+        val maxTotal = 20L * 1024 * 1024
+        uris.forEach { uri ->
+            try {
+                val resolver = appContext.contentResolver
+                var name = uri.lastPathSegment ?: "attachment"
+                var sizeHint = 0L
+                resolver.query(
+                    uri,
+                    arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+                    null, null, null
+                )?.use { c ->
+                    if (c.moveToFirst()) {
+                        val ni = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (ni >= 0) c.getString(ni)?.let { name = it }
+                        val si = c.getColumnIndex(OpenableColumns.SIZE)
+                        if (si >= 0 && !c.isNull(si)) sizeHint = c.getLong(si)
+                    }
+                }
+                if (sizeHint > 0 && total + sizeHint > maxTotal) return@forEach
+                val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: return@forEach
+                if (total + bytes.size > maxTotal) return@forEach
+                total += bytes.size
+                val mime = resolver.getType(uri) ?: "application/octet-stream"
+                out.add(MailAttachment(name, mime, bytes))
+            } catch (_: Throwable) {
+            }
+        }
+        return out
     }
 
     // ---------------- 过滤视图 ----------------
@@ -352,7 +575,8 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                 e.subject.contains(s.query, ignoreCase = true) ||
                     e.senderName.contains(s.query, ignoreCase = true) ||
                     e.senderEmail.contains(s.query, ignoreCase = true) ||
-                    e.preview.contains(s.query, ignoreCase = true)
+                    e.preview.contains(s.query, ignoreCase = true) ||
+                    e.body.contains(s.query, ignoreCase = true)
             }
         }
         // 这些文件夹已从服务器真实拉取，直接展示
@@ -370,6 +594,27 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
 
     fun unreadCount(category: MailCategory): Int =
         _state.value.emails.count { it.category == category && !it.isRead }
+
+    /** 侧栏智能邮箱未读数。 */
+    fun folderUnread(folder: String): Int {
+        val list = _state.value.emails
+        return when (folder) {
+            "收件箱" -> list.count { !it.isRead }
+            "VIP" -> list.count { it.isFlagged && !it.isRead }
+            "有附件" -> list.count { it.hasAttachment && !it.isRead }
+            "未读" -> list.count { !it.isRead }
+            "今天" -> {
+                val cal = Calendar.getInstance()
+                cal.set(Calendar.HOUR_OF_DAY, 0)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                val start = cal.timeInMillis
+                list.count { !it.isRead && it.timestamp >= start }
+            }
+            else -> 0
+        }
+    }
 
     fun unreadTotal(): Int = _state.value.emails.count { !it.isRead }
 

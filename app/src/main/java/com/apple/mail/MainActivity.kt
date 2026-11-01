@@ -1,7 +1,9 @@
 package com.apple.mail
 
+import android.content.Intent
 import android.graphics.Color as AndroidColor
 import android.os.Bundle
+import android.webkit.MimeTypeMap
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -20,6 +22,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -53,13 +56,34 @@ fun MailApp() {
     val viewModel: MailViewModel = viewModel()
     val state by viewModel.state.collectAsState()
     val isDark = isSystemInDarkTheme()
+    val context = LocalContext.current
+
+    fun openAttachment(path: String) {
+        try {
+            val file = java.io.File(path)
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                context.packageName + ".fileprovider",
+                file
+            )
+            val ext = file.extension.lowercase()
+            val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(intent)
+        } catch (_: Throwable) {
+            // 无可用应用时忽略
+        }
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(if (isDark) Color(0xFF000000) else Color(0xFFF2F2F7))
     ) {
-        // 内容整体避让状态栏 / 导航栏，避免控件被系统栏遮挡无法点击
+        // 内容整体避让状态栏 / 导航栏，避免控件被系统栏遮挡
         NavHost(
             navController = navController,
             startDestination = "inbox",
@@ -102,12 +126,18 @@ fun MailApp() {
                             viewModel.deleteEmail(id)
                             navController.popBackStack()
                         },
-                        onReply = { navController.navigate("compose") },
-                        onDownloadAttachment = { cb ->
-                            viewModel.downloadAttachment(id) { ok, msg ->
-                                cb(if (ok) "已保存到：$msg" else "下载失败：$msg")
-                            }
-                        }
+                        onReply = {
+                            viewModel.startReply(email)
+                            navController.navigate("compose")
+                        },
+                        onForward = {
+                            viewModel.startForward(email)
+                            navController.navigate("compose")
+                        },
+                        onDownloadAttachment = { index, cb ->
+                            viewModel.downloadAttachment(id, index) { ok, msg -> cb(ok, msg) }
+                        },
+                        onOpenAttachment = { path -> openAttachment(path) }
                     )
                 }
             }
@@ -124,7 +154,7 @@ fun MailApp() {
                     senderName = sender,
                     emails = emails,
                     onBack = { navController.popBackStack() },
-                    onOpenEmail = { id -> navController.navigate("email/$id") }
+                    onOpenEmail = { id -> viewModel.markAsRead(id); navController.navigate("email/$id") }
                 )
             }
 

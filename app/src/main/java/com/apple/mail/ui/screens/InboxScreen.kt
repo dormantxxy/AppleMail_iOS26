@@ -15,6 +15,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +48,14 @@ fun InboxScreen(
     val emails = viewModel.filteredEmails()
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
     val hazeState = remember { HazeState() }
+    var menuOpen by remember { mutableStateOf(false) }
+    val folderCounts = mapOf(
+        "收件箱" to viewModel.folderUnread("收件箱"),
+        "VIP" to viewModel.folderUnread("VIP"),
+        "有附件" to viewModel.folderUnread("有附件"),
+        "未读" to viewModel.folderUnread("未读"),
+        "今天" to viewModel.folderUnread("今天")
+    )
 
     // 操作结果提示自动消失
     LaunchedEffect(state.toast) {
@@ -72,17 +82,14 @@ fun InboxScreen(
         )
 
         Column(Modifier.fillMaxSize()) {
-            LiquidGlassContainer(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                cornerRadius = 20.dp,
-                hazeState = hazeState
+                    .background(if (isDark) Color(0xFF000000) else Color.White)
+                    .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 2.dp)
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = { viewModel.toggleSidebar() }) {
@@ -92,26 +99,70 @@ fun InboxScreen(
                         Text(
                             text = state.currentFolder,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp,
+                            fontSize = 26.sp,
                             color = MaterialTheme.colorScheme.onBackground
                         )
+                        val unreadCount = emails.count { !it.isRead }
                         Text(
-                            text = if (state.isLoading) "同步中…" else "${emails.count { !it.isRead }} 封未读",
+                            text = when {
+                                state.isLoading -> "同步中…"
+                                state.lastSyncTime > 0L ->
+                                    "$unreadCount 封未读 · ${android.text.format.DateFormat.format("HH:mm", state.lastSyncTime)}"
+                                else -> "$unreadCount 封未读"
+                            },
                             fontSize = 12.sp,
                             color = MailTextSecondary
+                        )
+                    }
+                    TextButton(onClick = { viewModel.toggleSelectionMode() }) {
+                        Text(
+                            text = if (state.isSelectionMode) "完成" else "编辑",
+                            color = MailBlue,
+                            fontSize = 15.sp
                         )
                     }
                     IconButton(onClick = { viewModel.toggleSearch() }) {
                         Icon(Icons.Filled.Search, contentDescription = "搜索", tint = MailBlue)
                     }
-                    IconButton(onClick = { viewModel.toggleListMode() }) {
-                        Icon(
-                            if (state.showListMode) Icons.Filled.ViewList else Icons.Filled.MoreHoriz,
-                            contentDescription = "更多",
-                            tint = Color.Gray
-                        )
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) {
+                            Icon(
+                                Icons.Filled.MoreHoriz,
+                                contentDescription = "更多",
+                                tint = MailBlue
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = menuOpen,
+                            onDismissRequest = { menuOpen = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(if (state.showListMode) "分类视图" else "列表视图") },
+                                onClick = { viewModel.toggleListMode(); menuOpen = false }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("全部标为已读") },
+                                onClick = { viewModel.markAllRead(); menuOpen = false }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("刷新") },
+                                onClick = { viewModel.refreshAll(); menuOpen = false }
+                            )
+                        }
                     }
                 }
+            }
+            HorizontalDivider(
+                color = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA),
+                thickness = 0.5.dp
+            )
+
+            if (state.isLoading && emails.isNotEmpty()) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(2.dp),
+                    color = MailBlue,
+                    trackColor = Color.Transparent
+                )
             }
 
             if (state.searchActive) {
@@ -123,12 +174,18 @@ fun InboxScreen(
             }
 
             if (!state.showListMode && state.currentFolder == "收件箱") {
-                CategoryTabs(
-                    selected = state.selectedCategory,
-                    onSelect = { viewModel.selectCategory(it) },
-                    unreadCounts = MailCategory.entries.associateWith { viewModel.unreadCount(it) }
-                )
-                Spacer(Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(if (isDark) Color(0xFF000000) else Color.White)
+                        .padding(bottom = 6.dp)
+                ) {
+                    CategoryTabs(
+                        selected = state.selectedCategory,
+                        onSelect = { viewModel.selectCategory(it) },
+                        unreadCounts = MailCategory.entries.associateWith { viewModel.unreadCount(it) }
+                    )
+                }
             }
 
             if (state.errorMessage != null) {
@@ -167,21 +224,94 @@ fun InboxScreen(
                             contentPadding = PaddingValues(top = 0.dp, bottom = 96.dp)
                         ) {
                             items(emails, key = { it.id }) { email ->
-                                MailCard(
-                                    email = email,
-                                    isSelected = state.selectedEmails.contains(email.id),
-                                    isSelectionMode = state.isSelectionMode,
-                                    onClick = {
-                                        viewModel.markAsRead(email.id)
-                                        if (email.category != MailCategory.PRIMARY && state.currentFolder == "收件箱" && !state.showListMode) {
-                                            onOpenDigest(email.senderName)
-                                        } else {
-                                            onOpenEmail(email.id)
+                                val dismissState = rememberSwipeToDismissBoxState(
+                                    confirmValueChange = { value ->
+                                        when (value) {
+                                            SwipeToDismissBoxValue.StartToEnd -> viewModel.archiveEmail(email.id)
+                                            SwipeToDismissBoxValue.EndToStart -> viewModel.deleteEmail(email.id)
+                                            else -> {}
                                         }
-                                    },
-                                    onLongClick = { viewModel.toggleSelectionMode() },
-                                    onToggleSelect = { viewModel.toggleSelectEmail(email.id) }
+                                        false
+                                    }
                                 )
+                                SwipeToDismissBox(
+                                    state = dismissState,
+                                    enableDismissFromStartToEnd = true,
+                                    enableDismissFromEndToStart = true,
+                                    backgroundContent = {
+                                        Row(Modifier.fillMaxSize()) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .fillMaxHeight()
+                                                    .background(Color(0xFF34C759)),
+                                                contentAlignment = Alignment.CenterStart
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(start = 20.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(Icons.Filled.Archive, contentDescription = null, tint = Color.White)
+                                                    Spacer(Modifier.width(6.dp))
+                                                    Text("归档", color = Color.White, fontSize = 14.sp)
+                                                }
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .fillMaxHeight()
+                                                    .background(Color(0xFFFF3B30)),
+                                                contentAlignment = Alignment.CenterEnd
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(end = 20.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text("删除", color = Color.White, fontSize = 14.sp)
+                                                    Spacer(Modifier.width(6.dp))
+                                                    Icon(Icons.Filled.Delete, contentDescription = null, tint = Color.White)
+                                                }
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    MailCard(
+                                        email = email,
+                                        isSelected = state.selectedEmails.contains(email.id),
+                                        isSelectionMode = state.isSelectionMode,
+                                        onClick = {
+                                            viewModel.markAsRead(email.id)
+                                            if (email.category != MailCategory.PRIMARY && state.currentFolder == "收件箱" && !state.showListMode) {
+                                                onOpenDigest(email.senderName)
+                                            } else {
+                                                onOpenEmail(email.id)
+                                            }
+                                        },
+                                        onLongClick = { viewModel.toggleSelectionMode() },
+                                        onToggleSelect = { viewModel.toggleSelectEmail(email.id) }
+                                    )
+                                }
+                            }
+                            item {
+                                if (state.isLoadingMore) {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(22.dp),
+                                            color = MailBlue,
+                                            strokeWidth = 2.dp
+                                        )
+                                    }
+                                } else {
+                                    TextButton(
+                                        onClick = { viewModel.loadMore() },
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                                    ) {
+                                        Text("加载更多", color = MailBlue, fontSize = 14.sp)
+                                    }
+                                }
                             }
                         }
                     }
@@ -208,6 +338,7 @@ fun InboxScreen(
                 onRemoveAccount = { viewModel.removeAccount(it) },
                 onRefresh = { viewModel.refreshAll(); viewModel.closeSidebar() },
                 onClose = { viewModel.closeSidebar() },
+                counts = folderCounts,
                 modifier = Modifier.align(Alignment.CenterStart)
             )
         }

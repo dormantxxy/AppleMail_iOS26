@@ -1,26 +1,28 @@
 package com.apple.mail.ui.components
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.apple.mail.data.MailCategory
-import com.apple.mail.ui.theme.MailBlue
+import com.apple.mail.ui.theme.MailTextSecondary
 
-private fun categoryIcon(category: MailCategory) = when (category) {
+private fun categoryIcon(category: MailCategory): ImageVector = when (category) {
     MailCategory.PRIMARY -> Icons.Filled.Inbox
     MailCategory.TRANSACTIONS -> Icons.Filled.CreditCard
     MailCategory.UPDATES -> Icons.Filled.Notifications
@@ -28,8 +30,7 @@ private fun categoryIcon(category: MailCategory) = when (category) {
 }
 
 /**
- * iOS 26 分类标签栏（Liquid Glass 分段控件）。
- * 主要 / 交易 / 更新 / 推广 四个玻璃胶囊标签。
+ * iOS 26 Mail 分类分段控件：四个等宽胶囊，选中项以分类色填充。
  */
 @Composable
 fun CategoryTabs(
@@ -39,63 +40,58 @@ fun CategoryTabs(
     modifier: Modifier = Modifier
 ) {
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-    val trackColor = if (isDark) Color(0x33222222) else Color(0x11000000)
+    val track = if (isDark) Color(0xFF1C1C1E) else Color(0xFFF2F2F7)
 
-    Box(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(trackColor)
-            .padding(4.dp)
+            .background(if (isDark) Color(0xFF000000) else Color.White)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            MailCategory.entries.forEach { cat ->
-                item {
-                    val isSelected = selected == cat
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                if (isSelected) MailBlue.copy(alpha = 0.18f) else Color.Transparent
-                            )
-                            .clickable { onSelect(cat) }
-                            .padding(horizontal = 12.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = categoryIcon(cat),
-                            contentDescription = null,
-                            tint = if (isSelected) cat.accent else Color.Gray,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = cat.title,
-                            color = if (isSelected) cat.accent else Color.Gray,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                            fontSize = 13.sp
-                        )
-                        val count = unreadCounts[cat] ?: 0
-                        if (count > 0) {
-                            Spacer(Modifier.width(6.dp))
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(cat.accent.copy(alpha = 0.2f))
-                                    .padding(horizontal = 5.dp, vertical = 1.dp)
-                            ) {
-                                Text(
-                                    text = count.toString(),
-                                    color = cat.accent,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
+        MailCategory.entries.forEach { cat ->
+            val isSelected = selected == cat
+            val bgColor by animateColorAsState(
+                targetValue = if (isSelected) cat.accent else track,
+                label = "catBg"
+            )
+            val fgColor by animateColorAsState(
+                targetValue = if (isSelected) Color.White else MailTextSecondary,
+                label = "catFg"
+            )
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(bgColor)
+                    .clickable { onSelect(cat) }
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = categoryIcon(cat),
+                    contentDescription = null,
+                    tint = fgColor,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = cat.title,
+                    color = fgColor,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                    fontSize = 12.sp,
+                    maxLines = 1
+                )
+                val count = unreadCounts[cat] ?: 0
+                if (count > 0) {
+                    Spacer(Modifier.width(3.dp))
+                    Text(
+                        text = count.toString(),
+                        color = if (isSelected) Color.White.copy(alpha = 0.85f) else cat.accent,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         }

@@ -34,7 +34,15 @@ object AccountStore {
                     smtpPort = o.optInt("smtpPort", 465),
                     smtpSsl = o.optBoolean("smtpSsl", true),
                     smtpStartTls = o.optBoolean("smtpStartTls", false),
-                    colorIndex = o.optInt("colorIndex", 0)
+                    colorIndex = o.optInt("colorIndex", 0),
+                    authType = o.optString("authType", "password"),
+                    accessToken = decode(o.optString("accessToken")),
+                    refreshToken = decode(o.optString("refreshToken")),
+                    expiresAt = o.optLong("expiresAt", 0L),
+                    tokenEndpoint = o.optString("tokenEndpoint"),
+                    clientId = o.optString("clientId"),
+                    clientSecret = decode(o.optString("clientSecret")),
+                    scope = o.optString("scope")
                 )
             }
         } catch (e: Exception) {
@@ -59,6 +67,14 @@ object AccountStore {
             o.put("smtpSsl", a.smtpSsl)
             o.put("smtpStartTls", a.smtpStartTls)
             o.put("colorIndex", a.colorIndex)
+            o.put("authType", a.authType)
+            o.put("accessToken", encode(a.accessToken))
+            o.put("refreshToken", encode(a.refreshToken))
+            o.put("expiresAt", a.expiresAt)
+            o.put("tokenEndpoint", a.tokenEndpoint)
+            o.put("clientId", a.clientId)
+            o.put("clientSecret", encode(a.clientSecret))
+            o.put("scope", a.scope)
             arr.put(o)
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

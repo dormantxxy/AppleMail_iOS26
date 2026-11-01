@@ -29,6 +29,9 @@ import com.apple.mail.data.MailProvider
 import com.apple.mail.data.ProviderPreset
 import com.apple.mail.ui.components.GlassIconButton
 import com.apple.mail.ui.components.LiquidGlassContainer
+import com.apple.mail.ui.components.OAuthDialog
+import com.apple.mail.oauth.OAuthManager
+import com.apple.mail.oauth.OAuthProviders
 import com.apple.mail.ui.theme.MailBlue
 import com.apple.mail.ui.theme.MailTextSecondary
 
@@ -52,6 +55,8 @@ fun AddAccountScreen(
     var showPassword by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var verifying by remember { mutableStateOf(false) }
+    var showOAuth by remember { mutableStateOf(false) }
+    var oauthToken by remember { mutableStateOf<OAuthManager.TokenSet?>(null) }
 
     var imapHost by remember { mutableStateOf("") }
     var imapPort by remember { mutableStateOf("993") }
@@ -68,13 +73,14 @@ fun AddAccountScreen(
 
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
 
-    fun buildAccount(): MailAccount {
+    fun buildAccount(token: OAuthManager.TokenSet? = oauthToken): MailAccount {
         val p = selectedProvider ?: MailProvider.custom
+        val oauthCfg = OAuthProviders.configFor(p.id)
         return MailAccount(
             id = email.trim().lowercase(),
             displayName = displayName.ifBlank { email.substringBefore('@') },
             email = email.trim(),
-            password = password,
+            password = if (token != null) "" else password,
             providerId = p.id,
             imapHost = imapHost.ifBlank { p.imapHost },
             imapPort = imapPort.toIntOrNull() ?: p.imapPort,
@@ -83,7 +89,15 @@ fun AddAccountScreen(
             smtpPort = smtpPort.toIntOrNull() ?: p.smtpPort,
             smtpSsl = smtpSsl,
             smtpStartTls = smtpStartTls,
-            colorIndex = (email.hashCode() and 0x7fffffff) % 8
+            colorIndex = (email.hashCode() and 0x7fffffff) % 8,
+            authType = if (token != null) "oauth" else "password",
+            accessToken = token?.accessToken ?: "",
+            refreshToken = token?.refreshToken ?: "",
+            expiresAt = token?.expiresAt ?: 0L,
+            tokenEndpoint = oauthCfg?.tokenEndpoint ?: "",
+            clientId = oauthCfg?.clientId ?: "",
+            clientSecret = oauthCfg?.clientSecret ?: "",
+            scope = oauthCfg?.scope ?: ""
         )
     }
 
@@ -93,53 +107,50 @@ fun AddAccountScreen(
             .background(if (isDark) Color(0xFF000000) else Color(0xFFF2F2F7))
     ) {
         Column(Modifier.fillMaxSize()) {
-            LiquidGlassContainer(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                cornerRadius = 20.dp
+                    .background(if (isDark) Color(0xFF000000) else Color.White)
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    GlassIconButton(
-                        icon = Icons.AutoMirrored.Filled.ArrowBack,
-                        onClick = {
-                            when (step) {
-                                AddStep.PROVIDER -> onBack()
-                                AddStep.CREDENTIALS -> { step = AddStep.PROVIDER; errorMsg = null }
-                                AddStep.SYNC_OPTIONS -> { step = AddStep.CREDENTIALS; errorMsg = null }
-                            }
-                        },
-                        tint = MailBlue,
-                        size = 40.dp
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            text = when (step) {
-                                AddStep.PROVIDER -> "添加账户"
-                                AddStep.CREDENTIALS -> "登录邮箱"
-                                AddStep.SYNC_OPTIONS -> "同步选项"
-                            },
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
-                        )
-                        Text(
-                            text = when (step) {
-                                AddStep.PROVIDER -> "选择你的邮箱服务商"
-                                AddStep.CREDENTIALS -> selectedProvider?.displayName ?: ""
-                                AddStep.SYNC_OPTIONS -> "选择要同步的内容"
-                            },
-                            fontSize = 12.sp,
-                            color = MailTextSecondary
-                        )
+                IconButton(
+                    onClick = {
+                        when (step) {
+                            AddStep.PROVIDER -> onBack()
+                            AddStep.CREDENTIALS -> { step = AddStep.PROVIDER; errorMsg = null }
+                            AddStep.SYNC_OPTIONS -> { step = AddStep.CREDENTIALS; errorMsg = null }
+                        }
                     }
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = MailBlue)
+                }
+                Spacer(Modifier.width(2.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = when (step) {
+                            AddStep.PROVIDER -> "添加账户"
+                            AddStep.CREDENTIALS -> "登录邮箱"
+                            AddStep.SYNC_OPTIONS -> "同步选项"
+                        },
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp
+                    )
+                    Text(
+                        text = when (step) {
+                            AddStep.PROVIDER -> "选择你的邮箱服务商"
+                            AddStep.CREDENTIALS -> selectedProvider?.displayName ?: ""
+                            AddStep.SYNC_OPTIONS -> "选择要同步的内容"
+                        },
+                        fontSize = 12.sp,
+                        color = MailTextSecondary
+                    )
                 }
             }
+            HorizontalDivider(
+                color = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA),
+                thickness = 0.5.dp
+            )
 
             when (step) {
                 AddStep.PROVIDER -> ProviderStep(
@@ -152,6 +163,7 @@ fun AddAccountScreen(
                         smtpPort = p.smtpPort.toString()
                         smtpSsl = p.smtpSsl
                         smtpStartTls = p.smtpStartTls
+                        oauthToken = null
                         step = AddStep.CREDENTIALS
                         errorMsg = null
                     }
@@ -175,13 +187,23 @@ fun AddAccountScreen(
                     smtpPort = smtpPort, onSmtpPort = { smtpPort = it },
                     smtpSsl = smtpSsl, onSmtpSsl = { smtpSsl = it },
                     smtpStartTls = smtpStartTls, onSmtpStartTls = { smtpStartTls = it },
+                    oauthAvailable = selectedProvider?.let { OAuthProviders.isConfigured(it.id) } == true,
+                    onOAuthClick = {
+                        if (email.isBlank()) {
+                            errorMsg = "请先填写邮箱地址"
+                        } else {
+                            errorMsg = null
+                            showOAuth = true
+                        }
+                    },
                     errorMsg = errorMsg,
                     verifying = verifying,
                     onNext = {
                         val p = selectedProvider
                         when {
                             p == null -> errorMsg = "请选择服务商"
-                            email.isBlank() || password.isBlank() -> errorMsg = "请输入邮箱地址和密码/授权码"
+                            email.isBlank() -> errorMsg = "请输入邮箱地址"
+                            oauthToken == null && password.isBlank() -> errorMsg = "请输入密码/授权码，或使用 OAuth 登录"
                             p.id == "custom" && (imapHost.isBlank() || smtpHost.isBlank()) ->
                                 errorMsg = "请填写 IMAP 与 SMTP 服务器地址"
                             else -> {
@@ -208,6 +230,30 @@ fun AddAccountScreen(
                     }
                 )
             }
+
+            if (showOAuth) {
+                val cfg = selectedProvider?.let { OAuthProviders.configFor(it.id) }
+                if (cfg != null) {
+                    OAuthDialog(
+                        config = cfg,
+                        onCancel = { showOAuth = false },
+                        onResult = { ts ->
+                            showOAuth = false
+                            if (ts == null) {
+                                errorMsg = "OAuth 授权失败，请重试"
+                            } else {
+                                oauthToken = ts
+                                errorMsg = null
+                                verifying = true
+                                onVerify(buildAccount(ts)) { ok, msg ->
+                                    verifying = false
+                                    if (ok) step = AddStep.SYNC_OPTIONS else errorMsg = msg
+                                }
+                            }
+                        }
+                    )
+                }
+            }
         }
     }
 }
@@ -216,29 +262,39 @@ fun AddAccountScreen(
 
 @Composable
 private fun ProviderStep(onSelect: (ProviderPreset) -> Unit) {
+    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val bg = if (isDark) Color(0xFF000000) else Color(0xFFF2F2F7)
+    val surface = if (isDark) Color(0xFF1C1C1E) else Color.White
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        modifier = Modifier.fillMaxSize().background(bg),
+        contentPadding = PaddingValues(vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         item {
             Text("邮件", fontSize = 13.sp, color = MailTextSecondary,
-                modifier = Modifier.padding(bottom = 4.dp))
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
         }
-        items(MailProvider.presets) { p ->
-            ProviderRow(p, onSelect)
+        item {
+            Column(Modifier.fillMaxWidth().background(surface)) {
+                MailProvider.presets.forEach { p -> ProviderRow(p, onSelect) }
+            }
         }
-        item { Spacer(Modifier.height(8.dp)) }
+        item { Spacer(Modifier.height(24.dp)) }
         item {
             Text("其他", fontSize = 13.sp, color = MailTextSecondary,
-                modifier = Modifier.padding(bottom = 4.dp))
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
         }
-        item { ProviderRow(MailProvider.custom, onSelect) }
+        item {
+            Column(Modifier.fillMaxWidth().background(surface)) {
+                ProviderRow(MailProvider.custom, onSelect)
+            }
+        }
         item { Spacer(Modifier.height(20.dp)) }
         item {
             Text(
-                text = "提示：Gmail / iCloud / Yahoo 需使用「应用专用密码」；QQ / 163 / 126 需先在网页端开启 IMAP/SMTP 并获取「授权码」。本应用通过 IMAP/SMTP 连接，账号密码仅保存在本机。",
-                fontSize = 12.sp, color = MailTextSecondary, lineHeight = 18.sp
+                text = "提示：Gmail / iCloud / Yahoo 需使用「应用专用密码」；QQ / 163 / 126 需先在网页端开启 IMAP/SMTP 并获取「授权码」。账号密码仅保存在本机。",
+                fontSize = 12.sp, color = MailTextSecondary, lineHeight = 18.sp,
+                modifier = Modifier.padding(horizontal = 16.dp)
             )
         }
     }
@@ -247,35 +303,38 @@ private fun ProviderStep(onSelect: (ProviderPreset) -> Unit) {
 @Composable
 private fun ProviderRow(p: ProviderPreset, onSelect: (ProviderPreset) -> Unit) {
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(if (isDark) Color(0xFF1C1C1E) else Color.White, RoundedCornerShape(14.dp))
-            .clickable { onSelect(p) }
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
+    val surface = if (isDark) Color(0xFF1C1C1E) else Color.White
+    val divider = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA)
+    Column(Modifier.fillMaxWidth().background(surface)) {
+        Row(
             modifier = Modifier
-                .size(34.dp)
-                .background(Color(p.accentHex), RoundedCornerShape(9.dp)),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .clickable { onSelect(p) }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = (p.displayName.firstOrNull() ?: '?').toString(),
-                color = Color.White,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .background(Color(p.accentHex), RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = (p.displayName.firstOrNull() ?: '?').toString(),
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Text(p.displayName, fontSize = 16.sp, modifier = Modifier.weight(1f))
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = MailTextSecondary.copy(alpha = 0.6f)
             )
         }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(p.displayName, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-            if (p.imapHost.isNotBlank()) {
-                Text(p.imapHost, fontSize = 11.sp, color = MailTextSecondary)
-            }
-        }
-        Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MailTextSecondary)
+        HorizontalDivider(color = divider, thickness = 0.5.dp, modifier = Modifier.padding(start = 58.dp))
     }
 }
 
@@ -296,6 +355,8 @@ private fun CredentialsStep(
     smtpPort: String, onSmtpPort: (String) -> Unit,
     smtpSsl: Boolean, onSmtpSsl: (Boolean) -> Unit,
     smtpStartTls: Boolean, onSmtpStartTls: (Boolean) -> Unit,
+    oauthAvailable: Boolean,
+    onOAuthClick: () -> Unit,
     errorMsg: String?,
     verifying: Boolean,
     onNext: () -> Unit
@@ -345,6 +406,16 @@ private fun CredentialsStep(
 
         provider?.let {
             Text(it.passwordHint, fontSize = 12.sp, color = MailTextSecondary, lineHeight = 17.sp)
+        }
+
+        if (oauthAvailable) {
+            OutlinedButton(
+                onClick = onOAuthClick,
+                modifier = Modifier.fillMaxWidth().height(46.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("使用 OAuth 登录（Gmail / Outlook）", fontSize = 14.sp)
+            }
         }
 
         if (isCustom) {

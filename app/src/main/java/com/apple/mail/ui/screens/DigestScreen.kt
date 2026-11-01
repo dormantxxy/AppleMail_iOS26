@@ -40,37 +40,36 @@ fun DigestScreen(
             .background(if (isDark) Color(0xFF000000) else Color(0xFFF2F2F7))
     ) {
         Column(Modifier.fillMaxSize()) {
-            // 顶部工具栏
-            LiquidGlassContainer(
+            // 顶部导航栏
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                cornerRadius = 20.dp
+                    .background(if (isDark) Color(0xFF000000) else Color.White)
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    GlassIconButton(icon = Icons.AutoMirrored.Filled.ArrowBack, onClick = onBack, tint = MailBlue, size = 40.dp)
-                    Spacer(Modifier.width(4.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(text = senderName, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                        Text(text = "${emails.size} 封邮件", fontSize = 12.sp, color = MailTextSecondary)
-                    }
-                    GlassIconButton(icon = Icons.Filled.CheckCircle, onClick = {}, tint = Color.Gray, size = 40.dp)
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = MailBlue)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(text = senderName, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                    Text(text = "${emails.size} 封邮件", fontSize = 12.sp, color = MailTextSecondary)
                 }
             }
+            HorizontalDivider(
+                color = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA),
+                thickness = 0.5.dp
+            )
 
             // 发件人头像 + 信息
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(if (isDark) Color(0xFF000000) else Color.White)
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Avatar(name = senderName, colorIndex = 0, size = 56)
+                Avatar(name = senderName, colorIndex = 0, size = 48)
                 Spacer(Modifier.width(14.dp))
                 Column {
                     Text(text = senderName, fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -80,7 +79,7 @@ fun DigestScreen(
 
             // 邮件列表
             LazyColumn(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).background(if (isDark) Color(0xFF000000) else Color.White),
                 contentPadding = PaddingValues(bottom = 24.dp)
             ) {
                 items(emails, key = { it.id }) { email ->

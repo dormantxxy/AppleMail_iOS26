@@ -2,6 +2,7 @@ plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
     id 'org.jetbrains.kotlin.plugin.compose'
+    id 'org.jetbrains.kotlin.kapt'
 }
 
 android {
@@ -15,6 +16,10 @@ android {
         targetSdk 34
         versionCode 1
         versionName '1.0'
+        // OAuth：填入你自己的 Client ID 后即可使用 Gmail / Outlook OAuth 登录
+        buildConfigField "String", "GOOGLE_CLIENT_ID", '""'
+        buildConfigField "String", "GOOGLE_CLIENT_SECRET", '""'
+        buildConfigField "String", "MICROSOFT_CLIENT_ID", '""'
         vectorDrawables { useSupportLibrary true }
     }
 
@@ -47,6 +52,7 @@ android {
     }
     buildFeatures {
         compose true
+        buildConfig true
     }
     packagingOptions {
         resources {
@@ -61,6 +67,10 @@ android {
             pickFirsts += 'META-INF/mimetypes.default'
         }
     }
+}
+
+kapt {
+    correctErrorTypes = true
 }
 
 // JavaMail on Android: avoid pulling the desktop javax.activation
@@ -98,6 +108,11 @@ dependencies {
     // JavaMail for Android - real IMAP / SMTP
     implementation 'com.sun.mail:android-mail:1.6.7'
     implementation 'com.sun.mail:android-activation:1.6.7'
+
+    // Room local cache
+    implementation 'androidx.room:room-runtime:2.6.1'
+    implementation 'androidx.room:room-ktx:2.6.1'
+    kapt 'androidx.room:room-compiler:2.6.1'
 
     debugImplementation 'androidx.compose.ui:ui-tooling'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'
