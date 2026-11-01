@@ -1,7 +1,9 @@
 package com.apple.mail.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -51,6 +53,7 @@ fun Avatar(name: String, colorIndex: Int, size: Int = 48) {
 /**
  * 邮件列表卡片（Liquid Glass 风格，独立圆角卡片）。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MailCard(
     email: EmailMessage,
@@ -71,7 +74,7 @@ fun MailCard(
             .background(
                 if (isSelected) MailBlue.copy(alpha = 0.15f) else cardColor.copy(alpha = 0.96f)
             )
-            .clickable(
+            .combinedClickable(
                 onClick = { if (isSelectionMode) onToggleSelect() else onClick() },
                 onLongClick = onLongClick
             )
@@ -82,7 +85,6 @@ fun MailCard(
                 .padding(horizontal = 14.dp, vertical = 14.dp),
             verticalAlignment = Alignment.Top
         ) {
-            // 未读指示点 / 选择圈
             Box(
                 modifier = Modifier
                     .padding(top = 10.dp, end = 10.dp)
@@ -102,7 +104,6 @@ fun MailCard(
             Spacer(Modifier.width(12.dp))
 
             Column(Modifier.weight(1f)) {
-                // 第一行：发件人 + 时间
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = email.senderName,
@@ -140,7 +141,6 @@ fun MailCard(
                     )
                 }
 
-                // 第二行：主题
                 Text(
                     text = email.subject,
                     style = MaterialTheme.typography.titleSmall,
@@ -151,7 +151,6 @@ fun MailCard(
                     modifier = Modifier.padding(top = 3.dp)
                 )
 
-                // 第三行：预览
                 Text(
                     text = email.preview,
                     style = MaterialTheme.typography.bodySmall,
@@ -233,7 +232,6 @@ fun DigestCard(
                 tint = MailTextSecondary
             )
         }
-        // 预览前2封
         emails.take(2).forEach { e ->
             Row(
                 modifier = Modifier

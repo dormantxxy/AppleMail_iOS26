@@ -207,7 +207,7 @@ object MailRepository {
 
         val uid = try {
             when (msg) {
-                is com.sun.mail.imap.IMAPMessage -> msg.uid
+                is com.sun.mail.imap.IMAPMessage -> msg.getUid()
                 else -> -1L
             }
         } catch (_: Throwable) { -1L }

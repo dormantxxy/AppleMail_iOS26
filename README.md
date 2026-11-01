@@ -67,4 +67,4 @@ app/src/main/java/com/apple/mail/
 
 AGP 8.2.2 / Kotlin 1.9.22 / Compose BOM 2024.09.03 / Compose Compiler 1.5.11 / Haze 1.6.10 / JavaMail(android-mail) 1.6.7 / Navigation 2.8.1
 
-> ⚠️ Haze 用 **v1.x** API：`Modifier.hazeEffect(state) { tint = HazeTint(...); blurRadius = ... }`。
+> ⚠️ Haze 用 **v1.x** API：`Modifier.hazeEffect(state)`（毛玻璃）+ 自绘渐变/描边模拟玻璃高光。

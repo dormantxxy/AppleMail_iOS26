@@ -19,17 +19,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.apple.mail.ui.theme.MailGlassTintDark
-import com.apple.mail.ui.theme.MailGlassTintLight
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 
 /**
  * Liquid Glass（液态玻璃）容器。
  * 用 Haze 毛玻璃 + 高光描边 + 内部渐变色，模拟 iOS 26 玻璃质感。
- * [hazeState] 若传入，则与外部模糊源（如列表）共享同一个状态，
- * 实现"内容从玻璃背后透出模糊"的效果。
  */
 @Composable
 fun LiquidGlassContainer(
@@ -41,15 +36,11 @@ fun LiquidGlassContainer(
 ) {
     val state = hazeState ?: remember { HazeState() }
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-    val tintColor = if (isDark) MailGlassTintDark else MailGlassTintLight
 
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(cornerRadius))
-            .hazeEffect(state = state) {
-                blurRadius = 18.dp
-                tint = HazeTint(tintColor)
-            }
+            .hazeEffect(state = state)
             .border(
                 width = 1.dp,
                 brush = Brush.verticalGradient(
@@ -86,16 +77,12 @@ fun GlassIconButton(
 ) {
     val hazeState = remember { HazeState() }
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-    val tintColor = if (isDark) MailGlassTintDark else MailGlassTintLight
 
     IconButton(
         onClick = onClick,
         modifier = modifier
             .clip(RoundedCornerShape(size / 2))
-            .hazeEffect(state = hazeState) {
-                blurRadius = 12.dp
-                tint = HazeTint(tintColor)
-            }
+            .hazeEffect(state = hazeState)
             .border(
                 width = 0.5.dp,
                 color = if (isDark) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.6f),
@@ -133,7 +120,6 @@ fun GlassPillButton(
 ) {
     val hazeState = remember { HazeState() }
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-    val tintColor = if (isDark) MailGlassTintDark else MailGlassTintLight
 
     androidx.compose.material3.Surface(
         onClick = onClick,
@@ -141,10 +127,7 @@ fun GlassPillButton(
         color = Color.Transparent,
         modifier = modifier
             .clip(RoundedCornerShape(20.dp))
-            .hazeEffect(state = hazeState) {
-                blurRadius = 12.dp
-                tint = HazeTint(tintColor)
-            }
+            .hazeEffect(state = hazeState)
             .border(
                 width = 0.5.dp,
                 color = if (isDark) Color.White.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.7f),
