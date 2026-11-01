@@ -257,11 +257,16 @@ private fun ProviderRow(p: ProviderPreset, onSelect: (ProviderPreset) -> Unit) {
     ) {
         Box(
             modifier = Modifier
-                .size(36.dp)
-                .background(Color(p.accentHex).copy(alpha = 0.15f), RoundedCornerShape(9.dp)),
+                .size(34.dp)
+                .background(Color(p.accentHex), RoundedCornerShape(9.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Text(p.iconEmoji, fontSize = 18.sp)
+            Text(
+                text = (p.displayName.firstOrNull() ?: '?').toString(),
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {

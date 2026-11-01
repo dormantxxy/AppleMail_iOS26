@@ -383,6 +383,8 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
             m.contains("timeout", true) || m.contains("timed out", true) -> "连接超时，请检查网络或服务器地址/端口。"
             m.contains("UnknownHost", true) || m.contains("unresolved", true) -> "无法解析服务器地址，请检查 IMAP/SMTP 主机名。"
             m.contains("SSL", true) || m.contains("handshake", true) -> "SSL/加密握手失败，请检查端口与加密方式。"
+            m.contains("AUTHENTICATE", true) || m.contains("mechanism", true) || m.contains("BadCommand", true) ->
+                "服务器认证方式不兼容。请确认已开启 IMAP/SMTP 并使用授权码/应用专用密码。详情：$m"
             else -> m.ifBlank { e.javaClass.simpleName }
         }
     }

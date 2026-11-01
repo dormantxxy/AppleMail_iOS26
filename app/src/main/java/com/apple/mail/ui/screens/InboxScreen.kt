@@ -65,8 +65,8 @@ fun InboxScreen(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = if (isDark) listOf(Color(0xFF101020), Color(0xFF000000))
-                        else listOf(Color(0xFFE8F0FF), Color(0xFFF2F2F7))
+                        colors = if (isDark) listOf(Color(0xFF000000), Color(0xFF000000))
+                        else listOf(Color(0xFFF2F2F7), Color(0xFFF2F2F7))
                     )
                 )
         )
@@ -103,13 +103,6 @@ fun InboxScreen(
                     }
                     IconButton(onClick = { viewModel.toggleSearch() }) {
                         Icon(Icons.Filled.Search, contentDescription = "搜索", tint = MailBlue)
-                    }
-                    IconButton(onClick = { viewModel.toggleSelectionMode() }) {
-                        Icon(
-                            Icons.Filled.CheckCircle,
-                            contentDescription = "选择",
-                            tint = if (state.isSelectionMode) MailBlue else Color.Gray
-                        )
                     }
                     IconButton(onClick = { viewModel.toggleListMode() }) {
                         Icon(
@@ -169,8 +162,9 @@ fun InboxScreen(
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
+                                .background(if (isDark) Color(0xFF000000) else Color.White)
                                 .hazeSource(hazeState),
-                            contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp)
+                            contentPadding = PaddingValues(top = 0.dp, bottom = 96.dp)
                         ) {
                             items(emails, key = { it.id }) { email ->
                                 MailCard(
@@ -332,13 +326,12 @@ private fun BottomToolbar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            GlassIconButton(icon = Icons.Filled.Edit, onClick = onCompose, tint = MailBlue, size = 44.dp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GlassIconButton(icon = Icons.Filled.Refresh, onClick = onRefresh, tint = Color.Gray)
                 GlassIconButton(icon = Icons.Outlined.Flag, onClick = {}, tint = Color.Gray)
                 GlassIconButton(icon = Icons.Filled.Folder, onClick = {}, tint = Color.Gray)
-                GlassIconButton(icon = Icons.Filled.Refresh, onClick = onRefresh, tint = Color.Gray)
             }
-            GlassIconButton(icon = Icons.Filled.CheckCircle, onClick = {}, tint = Color.Gray)
+            GlassIconButton(icon = Icons.Filled.Edit, onClick = onCompose, tint = MailBlue, size = 48.dp)
         }
     }
 }

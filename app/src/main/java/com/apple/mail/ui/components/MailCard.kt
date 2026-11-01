@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,9 +29,7 @@ import com.apple.mail.ui.theme.AvatarPalette
 import com.apple.mail.ui.theme.MailBlue
 import com.apple.mail.ui.theme.MailTextSecondary
 
-/**
- * 发件人头像（圆形 + 首字母 + 多彩背景）。
- */
+/** 发件人头像（圆形 + 首字母 + 多彩背景）。 */
 @Composable
 fun Avatar(name: String, colorIndex: Int, size: Int = 48) {
     val color = AvatarPalette[colorIndex % AvatarPalette.size]
@@ -44,14 +43,14 @@ fun Avatar(name: String, colorIndex: Int, size: Int = 48) {
         Text(
             text = name.firstOrNull()?.uppercase() ?: "?",
             color = Color.White,
-            fontSize = (size * 0.42).sp,
-            fontWeight = FontWeight.Bold
+            fontSize = (size * 0.40).sp,
+            fontWeight = FontWeight.Medium
         )
     }
 }
 
 /**
- * 邮件列表卡片（Liquid Glass 风格，独立圆角卡片）。
+ * 邮件列表行（贴近 iOS 26 Mail 的整行分隔列表样式，而非卡片）。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -65,74 +64,81 @@ fun MailCard(
     modifier: Modifier = Modifier
 ) {
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-    val cardColor = if (isDark) Color(0xFF1C1C1E) else Color.White
+    val bg = when {
+        isSelected -> MailBlue.copy(alpha = 0.12f)
+        isDark -> Color(0xFF000000)
+        else -> Color(0xFFFFFFFF)
+    }
+    val dividerColor = if (isDark) Color(0xFF2C2C2E) else Color(0xFFE5E5EA)
 
-    Box(
-        modifier = modifier
-            .padding(horizontal = 12.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(
-                if (isSelected) MailBlue.copy(alpha = 0.15f) else cardColor.copy(alpha = 0.96f)
-            )
-            .combinedClickable(
-                onClick = { if (isSelectionMode) onToggleSelect() else onClick() },
-                onLongClick = onLongClick
-            )
-    ) {
+    Column(modifier = modifier.fillMaxWidth().background(bg)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 14.dp),
+                .combinedClickable(
+                    onClick = { if (isSelectionMode) onToggleSelect() else onClick() },
+                    onLongClick = onLongClick
+                )
+                .padding(start = 12.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.Top
         ) {
+            // 未读圆点（固定宽度占位，保持对齐）
             Box(
                 modifier = Modifier
-                    .padding(top = 10.dp, end = 10.dp)
-                    .size(10.dp)
-                    .clip(CircleShape)
-                    .background(
-                        when {
-                            isSelectionMode ->
-                                if (isSelected) MailBlue else Color.Transparent
-                            !email.isRead -> MailBlue
-                            else -> Color.Transparent
-                        }
+                    .width(12.dp)
+                    .padding(top = 15.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isSelectionMode) {
+                    Box(
+                        Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(if (isSelected) MailBlue else Color.Transparent)
                     )
-            )
-            Avatar(name = email.senderName, colorIndex = email.avatarColorIndex, size = 46)
+                } else if (!email.isRead) {
+                    Box(
+                        Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(MailBlue)
+                    )
+                }
+            }
 
-            Spacer(Modifier.width(12.dp))
+            Avatar(name = email.senderName, colorIndex = email.avatarColorIndex, size = 40)
+
+            Spacer(Modifier.width(10.dp))
 
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = email.senderName,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (email.isRead) FontWeight.Medium else FontWeight.Bold,
-                        color = if (email.isRead) MailTextSecondary else MaterialTheme.colorScheme.onBackground,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (email.isRead) FontWeight.Regular else FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onBackground,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    Spacer(Modifier.width(8.dp))
                     if (email.isFlagged) {
                         Icon(
                             imageVector = Icons.Outlined.Flag,
                             contentDescription = null,
                             tint = Color(0xFFFF9500),
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(13.dp)
                         )
+                        Spacer(Modifier.width(4.dp))
                     }
                     if (email.hasAttachment) {
-                        Spacer(Modifier.width(4.dp))
                         Icon(
                             imageVector = Icons.Filled.AttachFile,
                             contentDescription = null,
                             tint = MailTextSecondary,
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(13.dp)
                         )
+                        Spacer(Modifier.width(4.dp))
                     }
-                    Spacer(Modifier.width(6.dp))
                     Text(
                         text = email.displayTime,
                         style = MaterialTheme.typography.labelMedium,
@@ -141,53 +147,51 @@ fun MailCard(
                     )
                 }
 
+                Spacer(Modifier.height(1.dp))
+
                 Text(
                     text = email.subject,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = if (email.isRead) FontWeight.Normal else FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (email.isRead) FontWeight.Normal else FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onBackground,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 3.dp)
+                    overflow = TextOverflow.Ellipsis
                 )
+
+                Spacer(Modifier.height(1.dp))
 
                 Text(
                     text = email.preview,
                     style = MaterialTheme.typography.bodySmall,
                     color = MailTextSecondary,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 3.dp)
+                    overflow = TextOverflow.Ellipsis
                 )
 
                 if (email.priority == MailPriority.PRIORITY) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 6.dp)
-                    ) {
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.Filled.Star,
                             contentDescription = null,
                             tint = Color(0xFFFF9500),
-                            modifier = Modifier.size(12.dp)
+                            modifier = Modifier.size(11.dp)
                         )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = "优先",
-                            color = Color(0xFFFF9500),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Spacer(Modifier.width(3.dp))
+                        Text("优先", color = Color(0xFFFF9500), fontSize = 11.sp)
                     }
                 }
             }
         }
+        HorizontalDivider(
+            modifier = Modifier.padding(start = 74.dp),
+            thickness = 0.5.dp,
+            color = dividerColor
+        )
     }
 }
 
-/**
- * 摘要卡片（同发件人邮件聚合，Digest View）。
- */
+/** 摘要卡片（同发件人邮件聚合，Digest View）。 */
 @Composable
 fun DigestCard(
     senderName: String,
@@ -215,11 +219,7 @@ fun DigestCard(
             Avatar(name = senderName, colorIndex = colorIndex, size = 40)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    text = senderName,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
+                Text(text = senderName, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(
                     text = "${emails.size} 封邮件 · 最近 ${emails.first().displayTime}",
                     color = MailTextSecondary,
@@ -248,7 +248,7 @@ fun DigestCard(
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = e.subject,
-                    fontWeight = if (e.isRead) FontWeight.Normal else FontWeight.SemiBold,
+                    fontWeight = if (e.isRead) FontWeight.Normal else FontWeight.Medium,
                     fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

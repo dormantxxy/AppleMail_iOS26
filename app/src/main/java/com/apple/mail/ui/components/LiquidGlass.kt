@@ -23,8 +23,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 
 /**
- * Liquid Glass（液态玻璃）容器。
- * 用 Haze 毛玻璃 + 高光描边 + 内部渐变色，模拟 iOS 26 玻璃质感。
+ * Liquid Glass 容器：毛玻璃 + 轻微高光描边 + 极淡渐变（贴近 iOS 26 的克制质感）。
  */
 @Composable
 fun LiquidGlassContainer(
@@ -42,11 +41,11 @@ fun LiquidGlassContainer(
             .clip(RoundedCornerShape(cornerRadius))
             .hazeEffect(state = state)
             .border(
-                width = 1.dp,
+                width = 0.5.dp,
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = if (isDark) 0.3f else 0.8f),
-                        Color.White.copy(alpha = if (isDark) 0.05f else 0.2f)
+                        Color.White.copy(alpha = if (isDark) 0.14f else 0.45f),
+                        Color.White.copy(alpha = if (isDark) 0.03f else 0.08f)
                     )
                 ),
                 shape = RoundedCornerShape(cornerRadius)
@@ -54,8 +53,8 @@ fun LiquidGlassContainer(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = if (isDark) 0.10f else 0.45f),
-                        Color.White.copy(alpha = if (isDark) 0.02f else 0.15f)
+                        Color.White.copy(alpha = if (isDark) 0.06f else 0.28f),
+                        Color.White.copy(alpha = if (isDark) 0.01f else 0.06f)
                     )
                 )
             ),
@@ -63,9 +62,7 @@ fun LiquidGlassContainer(
     )
 }
 
-/**
- * 玻璃图标按钮（圆角胶囊），对应 iOS 26 工具栏中的玻璃按钮。
- */
+/** 圆形玻璃图标按钮（iOS 26 工具栏按钮风格）。 */
 @Composable
 fun GlassIconButton(
     icon: ImageVector,
@@ -85,16 +82,11 @@ fun GlassIconButton(
             .hazeEffect(state = hazeState)
             .border(
                 width = 0.5.dp,
-                color = if (isDark) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.6f),
+                color = if (isDark) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(size / 2)
             )
             .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = if (isDark) 0.08f else 0.4f),
-                        Color.White.copy(alpha = if (isDark) 0.0f else 0.1f)
-                    )
-                )
+                if (isDark) Color.White.copy(alpha = 0.05f) else Color.White.copy(alpha = 0.55f)
             ),
         content = {
             Icon(
@@ -106,9 +98,7 @@ fun GlassIconButton(
     )
 }
 
-/**
- * 玻璃胶囊按钮（带文字）。
- */
+/** 玻璃胶囊按钮（带文字）。 */
 @Composable
 fun GlassPillButton(
     text: String,
@@ -130,16 +120,11 @@ fun GlassPillButton(
             .hazeEffect(state = hazeState)
             .border(
                 width = 0.5.dp,
-                color = if (isDark) Color.White.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.7f),
+                color = if (isDark) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.6f),
                 shape = RoundedCornerShape(20.dp)
             )
             .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = if (isDark) 0.12f else 0.5f),
-                        Color.White.copy(alpha = if (isDark) 0.02f else 0.15f)
-                    )
-                )
+                if (isDark) Color.White.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.55f)
             )
     ) {
         androidx.compose.foundation.layout.Row(
@@ -153,7 +138,7 @@ fun GlassPillButton(
                     modifier = Modifier.padding(start = 6.dp)
                 )
             }
-            Text(text = text, color = tint)
+            Text(text = text, color = tint, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
         }
     }
 }

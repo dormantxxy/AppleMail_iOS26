@@ -85,8 +85,10 @@ object MailRepository {
         return props
     }
 
-    private fun openStore(account: MailAccount): Store {
-        val session = Session.getInstance(imapProperties(account))
+    private fun connectOnce(account: MailAccount, extra: Map<String, String>): Store {
+        val props = imapProperties(account)
+        for ((k, v) in extra) props[k] = v
+        val session = Session.getInstance(props)
         val store = session.getStore("imap")
         store.connect(account.imapHost, account.imapPort, account.email, account.password)
         try {
@@ -103,6 +105,29 @@ object MailRepository {
         } catch (_: Throwable) {
         }
         return store
+    }
+
+    private fun openStore(account: MailAccount): Store {
+        var last: Throwable? = null
+        try {
+            return connectOnce(account, emptyMap())
+        } catch (e: Throwable) {
+            last = e
+        }
+        // 认证机制兜底：部分服务商 AUTHENTICATE 不兼容时切换到 LOGIN/PLAIN
+        val fallbacks = listOf(
+            mapOf("mail.imap.auth.login.disable" to "true"),
+            mapOf("mail.imap.auth.plain.disable" to "true"),
+            mapOf("mail.imap.auth.login.disable" to "true", "mail.imap.auth.plain.disable" to "true")
+        )
+        for (extra in fallbacks) {
+            try {
+                return connectOnce(account, extra)
+            } catch (e: Throwable) {
+                last = e
+            }
+        }
+        throw (last ?: IllegalStateException("无法连接邮件服务器"))
     }
 
     // ---------------- 验证登录 ----------------
