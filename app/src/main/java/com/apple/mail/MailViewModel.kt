@@ -600,8 +600,8 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
             .format(java.util.Date(email.timestamp))
         val fromHtml = "发件人：" + esc(email.senderName) + " &lt;" + esc(email.senderEmail) + "&gt;<br>时间：" + dateStr + "<br>主题：" + esc(email.subject)
         val bodyContent = if (email.bodyHtml.isNotBlank()) email.bodyHtml else esc(email.body).replace("\n", "<br>")
-        return "<div style="border-left:3px solid #C7C7CC; padding-left:12px; color:#3C3C43; font-size:14px; line-height:1.5;">" +
-            "<div style="color:#8E8E93; font-size:12px; margin-bottom:6px;">" + fromHtml + "</div>" +
+        return "<div style=\"border-left:3px solid #C7C7CC; padding-left:12px; color:#3C3C43; font-size:14px; line-height:1.5;\">" +
+            "<div style=\"color:#8E8E93; font-size:12px; margin-bottom:6px;\">" + fromHtml + "</div>" +
             "<div>" + bodyContent + "</div></div>"
     }
 
