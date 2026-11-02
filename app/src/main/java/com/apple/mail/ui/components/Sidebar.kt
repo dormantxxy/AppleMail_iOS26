@@ -42,6 +42,7 @@ fun MailSidebar(
     accounts: List<MailAccount>,
     currentFolder: String,
     onSelectFolder: (String) -> Unit,
+    onSelectAccount: (String) -> Unit,
     onAddAccount: () -> Unit,
     onRemoveAccount: (String) -> Unit,
     onRefresh: () -> Unit,
@@ -167,7 +168,7 @@ fun MailSidebar(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onSelectFolder("收件箱") }
+                                .clickable { onSelectAccount(account.id) }
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {

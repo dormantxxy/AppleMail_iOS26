@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -33,6 +34,7 @@ import com.apple.mail.ui.theme.MailBlue
 import com.apple.mail.ui.theme.MailTextSecondary
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.hazeEffect
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,31 +77,42 @@ fun InboxScreen(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = if (isDark) listOf(Color(0xFF000000), Color(0xFF000000))
-                        else listOf(Color(0xFFF2F2F7), Color(0xFFF2F2F7))
+                        colors = if (isDark) listOf(Color(0xFF0A0A0A), Color(0xFF000000))
+                        else listOf(Color(0xFFF7F7FA), Color(0xFFF2F2F7))
                     )
                 )
+                .hazeSource(hazeState)
         )
 
         Column(Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(if (isDark) Color(0xFF000000) else Color.White)
+                    .hazeEffect(state = hazeState)
+                    .background(
+                        if (isDark) Color(0x66000000) else Color(0xB3FFFFFF)
+                    )
                     .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 2.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { viewModel.toggleSidebar() }) {
+                    IconButton(
+                        onClick = { viewModel.toggleSidebar() },
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isDark) Color(0x1FFFFFFF) else Color(0x14767680))
+                    ) {
                         Icon(Icons.Filled.Menu, contentDescription = "邮箱", tint = MailBlue)
                     }
+                    Spacer(Modifier.width(4.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
-                            text = state.currentFolder,
+                            text = viewModel.currentTitle(),
                             fontWeight = FontWeight.Bold,
-                            fontSize = 26.sp,
+                            fontSize = 30.sp,
+                            letterSpacing = (-0.5).sp,
                             color = MaterialTheme.colorScheme.onBackground
                         )
                         val unreadCount = emails.count { !it.isRead }
@@ -111,21 +124,33 @@ fun InboxScreen(
                                 else -> "$unreadCount 封未读"
                             },
                             fontSize = 12.sp,
-                            color = MailTextSecondary
+                            color = MailTextSecondary,
+                            modifier = Modifier.padding(top = 1.dp)
                         )
                     }
                     TextButton(onClick = { viewModel.toggleSelectionMode() }) {
                         Text(
                             text = if (state.isSelectionMode) "完成" else "编辑",
                             color = MailBlue,
-                            fontSize = 15.sp
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
                         )
                     }
-                    IconButton(onClick = { viewModel.toggleSearch() }) {
+                    IconButton(
+                        onClick = { viewModel.toggleSearch() },
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isDark) Color(0x1FFFFFFF) else Color(0x14767680))
+                    ) {
                         Icon(Icons.Filled.Search, contentDescription = "搜索", tint = MailBlue)
                     }
                     Box {
-                        IconButton(onClick = { menuOpen = true }) {
+                        IconButton(
+                            onClick = { menuOpen = true },
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isDark) Color(0x1FFFFFFF) else Color(0x14767680))
+                        ) {
                             Icon(
                                 Icons.Filled.MoreHoriz,
                                 contentDescription = "更多",
@@ -225,6 +250,7 @@ fun InboxScreen(
                         ) {
                             items(emails, key = { it.id }) { email ->
                                 val dismissState = rememberSwipeToDismissBoxState(
+                                    positionalThreshold = { total -> total * 0.72f },
                                     confirmValueChange = { value ->
                                         when (value) {
                                             SwipeToDismissBoxValue.StartToEnd -> viewModel.archiveEmail(email.id)
@@ -331,6 +357,7 @@ fun InboxScreen(
                 accounts = state.accounts,
                 currentFolder = state.currentFolder,
                 onSelectFolder = { viewModel.setFolder(it) },
+                onSelectAccount = { viewModel.setFolder("收件箱", it) },
                 onAddAccount = {
                     viewModel.closeSidebar()
                     onAddAccount()
@@ -455,25 +482,24 @@ private fun BottomToolbar(
     hazeState: HazeState,
     modifier: Modifier = Modifier
 ) {
-    LiquidGlassContainer(
+    // 完整移除底栏，只保留右下角悬浮撰写按钮（iOS 26 风格）
+    Box(
         modifier = modifier.fillMaxWidth(),
-        cornerRadius = 28.dp,
-        hazeState = hazeState
+        contentAlignment = Alignment.BottomEnd
     ) {
-        Row(
+        GlassIconButton(
+            icon = Icons.Filled.Edit,
+            onClick = onCompose,
+            tint = Color.White,
+            size = 56.dp,
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GlassIconButton(icon = Icons.Filled.Refresh, onClick = onRefresh, tint = Color.Gray)
-                GlassIconButton(icon = Icons.Outlined.Flag, onClick = {}, tint = Color.Gray)
-                GlassIconButton(icon = Icons.Filled.Folder, onClick = {}, tint = Color.Gray)
-            }
-            GlassIconButton(icon = Icons.Filled.Edit, onClick = onCompose, tint = MailBlue, size = 48.dp)
-        }
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .shadow(16.dp, RoundedCornerShape(28.dp), spotColor = MailBlue.copy(alpha = 0.35f))
+                .background(
+                    Brush.verticalGradient(listOf(Color(0xFF0A84FF), Color(0xFF007AFF))),
+                    RoundedCornerShape(28.dp)
+                )
+        )
     }
 }
 

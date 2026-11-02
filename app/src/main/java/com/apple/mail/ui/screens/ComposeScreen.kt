@@ -17,6 +17,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -45,6 +48,8 @@ fun ComposeScreen(
     var bcc by remember { mutableStateOf("") }
     var subject by remember { mutableStateOf(pending?.subject ?: savedDraft?.subject.orEmpty()) }
     var body by remember { mutableStateOf(pending?.body ?: savedDraft?.body.orEmpty()) }
+    var quotedHtml by remember { mutableStateOf(pending?.quotedHtml ?: "") }
+    var isHtmlQuote by remember { mutableStateOf(pending?.isHtmlQuote ?: false) }
     var showCcBcc by remember { mutableStateOf(false) }
     var accountId by remember {
         mutableStateOf(
@@ -122,7 +127,8 @@ fun ComposeScreen(
             return
         }
         error = null
-        viewModel.sendMail(accountId, to, cc, subject, body, pickedUris.toList()) { ok, msg ->
+        val htmlBody = if (isHtmlQuote && quotedHtml.isNotBlank()) quotedHtml else null
+        viewModel.sendMail(accountId, to, cc, subject, body, pickedUris.toList(), { ok, msg ->
             if (ok) {
                 sentSuccessfully = true
                 com.apple.mail.data.DraftStore.clear(context)
@@ -131,7 +137,7 @@ fun ComposeScreen(
             } else {
                 error = msg
             }
-        }
+        }, htmlBody = htmlBody)
     }
 
     Column(
@@ -269,8 +275,8 @@ fun ComposeScreen(
             HorizontalDivider(color = divider, thickness = 0.5.dp)
         }
 
-        // 正文
-        Box(
+        // 正文（回复/转发时下方显示原邮件引用块）
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
@@ -284,7 +290,7 @@ fun ComposeScreen(
                 textStyle = TextStyle(fontSize = 16.sp, color = textColor),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 220.dp),
+                    .heightIn(min = 180.dp),
                 decorationBox = { inner ->
                     Box {
                         if (body.isEmpty()) {
@@ -294,6 +300,37 @@ fun ComposeScreen(
                     }
                 }
             )
+            if (isHtmlQuote && quotedHtml.isNotBlank()) {
+                Spacer(Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isDark) Color(0xFF1C1C1E) else Color(0xFFF2F2F7))
+                ) {
+                    AndroidView(
+                        factory = { ctx ->
+                            android.webkit.WebView(ctx).apply {
+                                settings.javaScriptEnabled = false
+                                settings.domStorageEnabled = false
+                                settings.loadsImagesAutomatically = false
+                                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                webViewClient = object : android.webkit.WebViewClient() {}
+                                loadDataWithBaseURL(
+                                    null,
+                                    "<html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">" +
+                                        "<style>body{margin:8px;padding:0;font-size:14px;line-height:1.5;color:#3C3C43;}</style></head><body>"
+                                        + quotedHtml + "</body></html>",
+                                    "text/html", "UTF-8", null
+                                )
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 60.dp, max = 260.dp)
+                    )
+                }
+            }
         }
 
         if (error != null) {

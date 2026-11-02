@@ -782,6 +782,9 @@ object MailRepository {
         return walk(part)
     }
 
+    private fun escHtml(t: String): String =
+        t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
     private fun readLimited(input: java.io.InputStream, max: Int): ByteArray {
         val out = ByteArrayOutputStream()
         val buf = ByteArray(8192)
@@ -840,7 +843,8 @@ object MailRepository {
         cc: String,
         subject: String,
         body: String,
-        attachments: List<MailAttachment> = emptyList()
+        attachments: List<MailAttachment> = emptyList(),
+        htmlBody: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val props = smtpProperties(account)
@@ -858,7 +862,34 @@ object MailRepository {
                 message.setRecipients(Message.RecipientType.CC, ccList.map { InternetAddress(it) }.toTypedArray())
             }
             message.subject = subject.ifBlank { "(无主题)" }
-            if (attachments.isEmpty()) {
+            // HTML 正文（回复/转发引用）：用户正文 + 引用块，包装为 text/html
+            if (htmlBody != null) {
+                val userHtml = escHtml(body).replace("\n", "<br>")
+                val fullHtml = "<html><head><meta charset=\"utf-8\"></head><body>" +
+                    "<div style=\"font-size:16px; line-height:1.5; font-family:-apple-system, Roboto, sans-serif;\">" +
+                    userHtml +
+                    "</div><div style=\"margin-top:12px;\">" + htmlBody + "</div></body></html>"
+                if (attachments.isEmpty()) {
+                    message.setContent(fullHtml, "text/html; charset=UTF-8")
+                } else {
+                    val multipart = MimeMultipart()
+                    val htmlPart = MimeBodyPart()
+                    htmlPart.setContent(fullHtml, "text/html; charset=UTF-8")
+                    multipart.addBodyPart(htmlPart)
+                    attachments.forEach { att ->
+                        val part = MimeBodyPart()
+                        try {
+                            part.setFileName(MimeUtility.encodeText(att.fileName, "UTF-8", null))
+                        } catch (_: Throwable) {
+                            part.fileName = att.fileName
+                        }
+                        part.setContent(ByteArrayDataSource(att.bytes, att.mimeType), att.mimeType)
+                        part.disposition = Part.ATTACHMENT
+                        multipart.addBodyPart(part)
+                    }
+                    message.setContent(multipart)
+                }
+            } else if (attachments.isEmpty()) {
                 message.setText(body, "UTF-8")
             } else {
                 val multipart = MimeMultipart()

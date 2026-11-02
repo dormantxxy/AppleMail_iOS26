@@ -37,6 +37,8 @@ data class MailUiState(
     val isSelectionMode: Boolean = false,
     val showSidebar: Boolean = false,
     val currentFolder: String = "收件箱",
+    /** 非空时只显示该账户的邮件（侧栏选择账户） */
+    val accountFilter: String? = null,
     val showListMode: Boolean = false,
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
@@ -51,7 +53,11 @@ data class ComposeDraft(
     val to: String = "",
     val cc: String = "",
     val subject: String = "",
-    val body: String = ""
+    val body: String = "",
+    /** 回复/转发时原邮件的 HTML 引用块（只读，渲染在正文下方） */
+    val quotedHtml: String = "",
+    /** true 表示引用原邮件（回复/转发），发送时正文用 HTML 格式 */
+    val isHtmlQuote: Boolean = false
 )
 
 class MailViewModel(app: Application) : AndroidViewModel(app) {
@@ -135,7 +141,8 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshAll() = refreshCurrentFolder()
 
     fun refreshCurrentFolder() {
-        val accounts = _state.value.accounts
+        val filter = _state.value.accountFilter
+        val accounts = _state.value.accounts.filter { filter == null || it.id == filter }
         if (accounts.isEmpty()) return
         val folderName = serverFolderName(_state.value.currentFolder)
         val folderKey = _state.value.currentFolder
@@ -325,7 +332,16 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setFolder(name: String) {
-        _state.value = _state.value.copy(currentFolder = name, showSidebar = false)
+        setFolder(name, null)
+    }
+
+    /** 选择账户：只显示该账户邮件；选择智能邮箱/文件夹时清除账户筛选 */
+    fun setFolder(name: String, accountId: String?) {
+        _state.value = _state.value.copy(
+            currentFolder = name,
+            accountFilter = accountId,
+            showSidebar = false
+        )
         // 真实文件夹需要重新从服务器拉取
         when (name) {
             "已发送", "草稿", "垃圾", "废纸篓", "收件箱" -> refreshCurrentFolder()
@@ -561,7 +577,9 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
         pendingCompose = ComposeDraft(
             to = email.senderEmail,
             subject = subj,
-            body = "\n\n—— 原始邮件 ——\n发件人：${email.senderName} <${email.senderEmail}>\n时间：${email.displayTime}\n\n${email.body}"
+            body = "",
+            quotedHtml = buildQuoteHtml(email),
+            isHtmlQuote = true
         )
     }
 
@@ -570,9 +588,25 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
         pendingCompose = ComposeDraft(
             to = "",
             subject = subj,
-            body = "\n\n—— 转发邮件 ——\n发件人：${email.senderName} <${email.senderEmail}>\n主题：${email.subject}\n\n${email.body}"
+            body = "",
+            quotedHtml = buildQuoteHtml(email, forward = true),
+            isHtmlQuote = true
         )
     }
+
+    /** 生成原邮件的 HTML 引用块（iOS Mail 风格：左侧灰线 + 原发件人信息）。 */
+    private fun buildQuoteHtml(email: EmailMessage, forward: Boolean = false): String {
+        val dateStr = java.text.SimpleDateFormat("yyyy年M月d日 HH:mm", java.util.Locale.CHINA)
+            .format(java.util.Date(email.timestamp))
+        val fromHtml = "发件人：" + esc(email.senderName) + " &lt;" + esc(email.senderEmail) + "&gt;<br>时间：" + dateStr + "<br>主题：" + esc(email.subject)
+        val bodyContent = if (email.bodyHtml.isNotBlank()) email.bodyHtml else esc(email.body).replace("\n", "<br>")
+        return "<div style="border-left:3px solid #C7C7CC; padding-left:12px; color:#3C3C43; font-size:14px; line-height:1.5;">" +
+            "<div style="color:#8E8E93; font-size:12px; margin-bottom:6px;">" + fromHtml + "</div>" +
+            "<div>" + bodyContent + "</div></div>"
+    }
+
+    private fun esc(t: String): String =
+        t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     fun clearPendingCompose() {
         pendingCompose = null
@@ -585,7 +619,8 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
         subject: String,
         body: String,
         attachmentUris: List<Uri> = emptyList(),
-        onResult: (Boolean, String?) -> Unit
+        onResult: (Boolean, String?) -> Unit,
+        htmlBody: String? = null
     ) {
         val account = _state.value.accounts.firstOrNull { it.id == accountId }
             ?: _state.value.accounts.firstOrNull()
@@ -597,7 +632,7 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
             } else {
                 withContext(Dispatchers.IO) { readAttachments(attachmentUris) }
             }
-            val result = MailRepository.sendMail(account, to, cc, subject, body, atts)
+            val result = MailRepository.sendMail(account, to, cc, subject, body, atts, htmlBody)
             _state.value = _state.value.copy(isLoading = false)
             if (result.isSuccess) onResult(true, null)
             else onResult(false, friendlyError(result.exceptionOrNull()))
@@ -651,17 +686,19 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                     e.body.contains(s.query, ignoreCase = true)
             }
         }
+        // 账户筛选：只显示选中账户的邮件
+        val base = if (s.accountFilter != null) s.emails.filter { it.accountId == s.accountFilter } else s.emails
         // 这些文件夹已从服务器真实拉取，直接展示
         when (s.currentFolder) {
-            "已发送", "草稿", "垃圾", "废纸篓" -> return s.emails
+            "已发送", "草稿", "垃圾", "废纸篓" -> return base
         }
         when (s.currentFolder) {
-            "VIP" -> return s.emails.filter { it.isFlagged }
-            "有附件" -> return s.emails.filter { it.hasAttachment }
-            "未读" -> return s.emails.filter { !it.isRead }
+            "VIP" -> return base.filter { it.isFlagged }
+            "有附件" -> return base.filter { it.hasAttachment }
+            "未读" -> return base.filter { !it.isRead }
         }
-        if (s.showListMode) return s.emails
-        return s.emails.filter { it.category == s.selectedCategory }
+        if (s.showListMode) return base
+        return base.filter { it.category == s.selectedCategory }
     }
 
     fun unreadCount(category: MailCategory): Int =
@@ -669,7 +706,8 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 侧栏智能邮箱未读数。 */
     fun folderUnread(folder: String): Int {
-        val list = _state.value.emails
+        val filter = _state.value.accountFilter
+        val list = if (filter != null) _state.value.emails.filter { it.accountId == filter } else _state.value.emails
         return when (folder) {
             "收件箱" -> list.count { !it.isRead }
             "VIP" -> list.count { it.isFlagged && !it.isRead }
@@ -689,6 +727,13 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun unreadTotal(): Int = _state.value.emails.count { !it.isRead }
+
+    /** 当前标题（文件夹名 + 可选账户名）。 */
+    fun currentTitle(): String {
+        val st = _state.value
+        val acc = st.accountFilter?.let { id -> st.accounts.firstOrNull { it.id == id } }
+        return if (acc != null) "${acc.displayName}" else st.currentFolder
+    }
 
     private fun friendlyError(e: Throwable?): String {
         if (e == null) return "未知错误"
